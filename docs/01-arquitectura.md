@@ -18,6 +18,7 @@ Este documento describe la arquitectura de alto nivel del LIMS, las decisiones d
 | `06-multi-tenant.md` | Aislamiento company_id, capas de defensa |
 | `07-reportes-pdf.md` | Generacion de PDFs, PDFMonkey |
 | `08-deploy-entorno.md` | Deploy en Railway, variables de entorno |
+| `09-notificaciones.md` | Notificaciones por correo con Resend |
 
 ## Diagrama de capas
 
@@ -119,7 +120,7 @@ Operaciones que requieren bypassear RLS (como crear un perfil de usuario sin ten
 | `src/app/api/` | Endpoints REST | Server-only |
 | `src/app/(paginas)/` | Pages con Server Components | Hybrid |
 | `src/components/` | Componentes React reutilizables | Client (la mayoria) |
-| `src/lib/services/` | Logica de negocio pura | Server-only |
+| `src/lib/services/` | Logica de negocio pura (notificationService, slaService) | Server-only |
 | `src/lib/reports/` | Servicio de reportes (`reportService.ts`) | Server-only |
 | `src/app/api/reports/pdfmonkey/route.ts` | Logica de generacion PDF (builders inline, ~1400 lineas) | Server-only |
 | `src/lib/auth/` | withAuth(), constantes | Server-only |
