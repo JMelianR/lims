@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import {
   TrendingUp,
@@ -8,7 +8,9 @@ import {
   TestTube,
   Calendar,
   Clock,
-  CheckCircle
+  CheckCircle,
+  Loader2,
+  ChevronDown
 } from 'lucide-react'
 import {
   SamplesByMonthChart,
@@ -18,6 +20,32 @@ import {
   ResultsByTypeChart,
   type ResultsByTypeRow
 } from '@/components/estadisticas/ResultsByTypeChart'
+import { KpiTatCard, type TatData } from '@/components/estadisticas/KpiTatCard'
+import { KpiPositivityChart, type PositivityData } from '@/components/estadisticas/KpiPositivityChart'
+import { KpiSlaGauge, type SlaData } from '@/components/estadisticas/KpiSlaGauge'
+import { KpiThroughputChart, type ThroughputData } from '@/components/estadisticas/KpiThroughputChart'
+import { ClientTypeFilter } from '@/components/estadisticas/ClientTypeFilter'
+import type { ClientTypeFilter as ClientTypeFilterValue } from '@/types/analytics'
+
+type KpiMetric = 'tat' | 'positivity' | 'sla' | 'throughput'
+
+const KPI_METRICS: { key: KpiMetric; label: string }[] = [
+  { key: 'tat', label: 'Tiempo de ciclo' },
+  { key: 'positivity', label: 'Positividad' },
+  { key: 'sla', label: 'Cumplimiento SLA' },
+  { key: 'throughput', label: 'Throughput' }
+]
+
+const PERIOD_OPTIONS = [
+  { days: 7, label: '7 días' },
+  { days: 30, label: '30 días' },
+  { days: 90, label: '90 días' }
+]
+
+function buildClientTypeParam(filter: ClientTypeFilterValue): string | null {
+  if (filter === 'all') return null  // null = no enviar param, API usa 'all' por defecto
+  return filter.join(',')
+}
 
 export default function EstadisticasPage() {
   const [stats, setStats] = useState({
@@ -33,6 +61,20 @@ export default function EstadisticasPage() {
   const [resultsByType, setResultsByType] = useState<ResultsByTypeRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
+  const [selectedMetric, setSelectedMetric] = useState<KpiMetric>('tat')
+  const [kpiData, setKpiData] = useState<TatData | PositivityData | SlaData | ThroughputData | null>(null)
+  const [isLoadingKpi, setIsLoadingKpi] = useState(false)
+  const [throughputDays, setThroughputDays] = useState(30)
+  const [selectedClientTypes, setSelectedClientTypes] = useState<ClientTypeFilterValue>('all')
+  const [positivityGroupBy, setPositivityGroupBy] = useState<'pathogen' | 'species' | 'clientType'>('pathogen')
+
+  // Reiniciar groupBy si el usuario cambia de métrica
+  useEffect(() => {
+    if (selectedMetric === 'positivity') {
+      setPositivityGroupBy('pathogen')
+    }
+  }, [selectedMetric])
+
   useEffect(() => {
     const fetchStats = async () => {
       try {
@@ -44,10 +86,14 @@ export default function EstadisticasPage() {
           completedDayEnd: completedDayEnd.toISOString()
         })
 
+        const ctParam = buildClientTypeParam(selectedClientTypes)
+        const chartsQuery = new URLSearchParams()
+        if (ctParam) chartsQuery.set('client_type', ctParam)
+
         const [dashboardStatsResponse, chartsResponse] =
           await Promise.all([
             fetch(`/api/dashboard/stats?${statsQuery.toString()}`),
-            fetch('/api/estadisticas/charts')
+            fetch(`/api/estadisticas/charts?${chartsQuery.toString()}`)
           ])
 
         let totalSamples = 0
@@ -102,6 +148,36 @@ export default function EstadisticasPage() {
     }
 
     fetchStats()
+  }, [selectedClientTypes])
+
+  const fetchKpi = useCallback(async (metric: KpiMetric, days: number, clientTypeFilter: ClientTypeFilterValue) => {
+    setIsLoadingKpi(true)
+    setKpiData(null)
+    try {
+      const params = new URLSearchParams({ metric })
+      if (metric === 'throughput') params.set('days', String(days))
+      const ctParam = buildClientTypeParam(clientTypeFilter)
+      if (ctParam) params.set('client_type', ctParam)
+      const response = await fetch(`/api/kpi?${params.toString()}`)
+      if (response.ok) {
+        const payload = await response.json()
+        setKpiData(payload)
+      }
+    } catch (error) {
+      console.error('Error fetching KPI:', error)
+    } finally {
+      setIsLoadingKpi(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchKpi(selectedMetric, throughputDays, selectedClientTypes)
+  }, [selectedMetric, throughputDays, selectedClientTypes, fetchKpi])
+
+  // Forzar re-fetch de KPI cuando cambia el filtro (incluso misma métrica)
+  const handleClientTypeChange = useCallback((filter: ClientTypeFilterValue) => {
+    setSelectedClientTypes(filter)
+    setIsLoading(true)  // re-fetch charts también
   }, [])
 
   if (isLoading) {
@@ -120,6 +196,17 @@ export default function EstadisticasPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Estadísticas</h1>
           <p className="text-gray-600">Resumen general del laboratorio</p>
+        </div>
+
+        {/* Client Type Filter */}
+        <div className="mb-6">
+          <p className="text-sm font-medium text-gray-700 mb-2">Filtrar por tipo de cliente</p>
+          <ClientTypeFilter selected={selectedClientTypes} onChange={handleClientTypeChange} />
+          {selectedClientTypes !== 'all' && (
+            <p className="mt-2 text-xs text-gray-400">
+              Mostrando datos de: {selectedClientTypes.length} tipo{selectedClientTypes.length > 1 ? 's' : ''} de cliente
+            </p>
+          )}
         </div>
 
         {/* Stats Grid */}
@@ -211,7 +298,7 @@ export default function EstadisticasPage() {
         </div>
 
         {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <div className="bg-white p-6 rounded-lg shadow-sm border">
             <div className="mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Muestras por mes</h3>
@@ -228,6 +315,79 @@ export default function EstadisticasPage() {
               </p>
             </div>
             <ResultsByTypeChart data={resultsByType} />
+          </div>
+        </div>
+
+        {/* KPIs Section */}
+        <div className="bg-white rounded-lg shadow-sm border">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <h3 className="text-lg font-semibold text-gray-900">Indicadores de rendimiento (KPI)</h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                {selectedMetric === 'throughput' && (
+                  <div className="relative">
+                    <select
+                      value={throughputDays}
+                      onChange={(e) => setThroughputDays(Number(e.target.value))}
+                      className="appearance-none bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 pr-8 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    >
+                      {PERIOD_OPTIONS.map((opt) => (
+                        <option key={opt.days} value={opt.days}>{opt.label}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                  </div>
+                )}
+
+                {/* Toggle de agrupación para positividad */}
+                {selectedMetric === 'positivity' && (
+                  <div className="relative">
+                    <select
+                      value={positivityGroupBy}
+                      onChange={(e) => setPositivityGroupBy(e.target.value as typeof positivityGroupBy)}
+                      className="appearance-none bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 pr-8 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    >
+                      <option value="pathogen">Por patógeno</option>
+                      <option value="species">Por especie</option>
+                      <option value="clientType">Por tipo de cliente</option>
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                  </div>
+                )}
+
+                <div className="flex bg-gray-100 rounded-lg p-1">
+                  {KPI_METRICS.map((m) => (
+                    <button
+                      key={m.key}
+                      onClick={() => setSelectedMetric(m.key)}
+                      className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+                        selectedMetric === m.key
+                          ? 'bg-white text-green-700 shadow-sm'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="p-6">
+            {isLoadingKpi ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-6 w-6 animate-spin text-green-600" />
+              </div>
+            ) : (
+              <>
+                {selectedMetric === 'tat' && <KpiTatCard data={kpiData as TatData | null} />}
+                {selectedMetric === 'positivity' && (
+                  <KpiPositivityChart data={kpiData as PositivityData | null} groupBy={positivityGroupBy} />
+                )}
+                {selectedMetric === 'sla' && <KpiSlaGauge data={kpiData as SlaData | null} />}
+                {selectedMetric === 'throughput' && <KpiThroughputChart data={kpiData as ThroughputData | null} />}
+              </>
+            )}
           </div>
         </div>
       </div>
