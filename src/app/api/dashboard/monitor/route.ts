@@ -116,10 +116,16 @@ export const GET = withAuth(async (_request, { user, supabase }) => {
     // ═══════════════════════════════════════════════════════════════
 
     // Obtener muestras activas con su última transición de estado
-    const { data: samples, error: samplesError } = await supabase
+    let samplesQuery = supabase
       .from('samples')
-      .select('id, code, species, status, clients!inner(name)')
+      .select('id, code, species, status, created_at, clients!inner(name)')
       .neq('status', 'completed')
+
+    if (companyId) {
+      samplesQuery = samplesQuery.eq('company_id', companyId)
+    }
+
+    const { data: samples, error: samplesError } = await samplesQuery
 
     if (samplesError) {
       console.error('Error fetching samples for bottlenecks:', samplesError)
@@ -160,7 +166,12 @@ export const GET = withAuth(async (_request, { user, supabase }) => {
 
     for (const sample of (samples ?? [])) {
       const lastTransition = latestTransitionBySample.get(sample.id)
-      const lastChangeAt = lastTransition?.at ? new Date(lastTransition.at) : null
+      // Si hay transición, usar su fecha; si no, usar created_at de la muestra como referencia
+      const lastChangeAt = lastTransition?.at
+        ? new Date(lastTransition.at)
+        : (sample as any).created_at
+          ? new Date((sample as any).created_at)
+          : null
 
       if (!lastChangeAt) continue
 
