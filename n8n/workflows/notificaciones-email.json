@@ -24,7 +24,7 @@
         "keepOnlySet": true,
         "values": {
           "string": [
-            { "name": "to", "value": "={{ $json.body.to_email.trim() }}" },
+            { "name": "to", "value": "={{ ($json.body.to_email || '').trim() }}" },
             { "name": "subject", "value": "={{ $json.body.subject }}" },
             { "name": "html", "value": "={{ $json.body.html }}" }
           ]

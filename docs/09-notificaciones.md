@@ -208,3 +208,121 @@ Wrapper para el template `results_validated`.
 6. **Todo correo debe incluir el footer de "no responder"** — lo garantiza el Code node en n8n
 7. **Etiquetas de estado en espanol** — usar `STATUS_LABELS` para traducir estados internos
 8. **El workflow de n8n debe estar activado** — si esta pausado, los webhooks responden 404
+
+## Guia para el revisor del PR
+
+### Requisitos previos
+
+1. **n8n funcionando**: local via Docker (`docker-compose up -d`) o una instancia cloud (n8n.cloud)
+2. **Credenciales SMTP configuradas en n8n**: el nodo "Enviar por Gmail" (o SMTP) debe tener credenciales validas
+3. **Workflow importado en n8n**: importar `n8n/workflows/notificaciones-email.json` desde Settings → Import
+4. **Webhook activo**: el workflow debe estar activado (toggle "Active" en ON)
+5. **Variables de entorno en `.env.local`**:
+   ```bash
+   N8N_NOTIFICATIONS_WEBHOOK_URL=<url-del-webhook>   # ej. http://localhost:5678/webhook/lims-notificaciones
+   N8N_WEBHOOK_DISABLE_AUTH=true                      # desactivar auth en desarrollo local
+   N8N_TEST_RECIPIENT=                                 # VACIO para envio a clientes reales
+   ```
+6. **Servidor LIMS corriendo**: `npm run dev`
+
+### Como probar
+
+1. **Abrir LIMS** en `http://localhost:3000`
+2. **Iniciar sesion** con una cuenta que tenga muestras
+3. **Probar cada trigger**:
+   - **Muestra recibida**: crear una nueva muestra (el cliente debe tener `contact_email`)
+   - **Cambio de estado**: editar una muestra existente y cambiar su `status`
+   - **Resultado validado**: ir a una muestra con resultados y validar un resultado
+4. **Verificar en n8n**: abrir el workflow y revisar la pestana "Executions" — cada notificacion debe mostrar status "Success"
+5. **Verificar en Gmail**: el destinatario (cliente) debe recibir el correo con el template correcto
+
+### Como verificar que SI funciona
+
+- **En n8n**: las ejecuciones aparecen con icono verde ✓
+- **En BD**: `SELECT * FROM notifications ORDER BY created_at DESC LIMIT 5;` → `status = 'sent'`
+- **En Gmail**: el cliente recibe el correo con el layout LIMS (header verde, tabla de datos, footer gris)
+
+### Checklist de verificacion
+
+- [ ] `POST /api/samples` → `sample_received` → llega correo al cliente
+- [ ] `PATCH /api/samples/[id]` con cambio de `status` → `sample_status_change` → llega correo
+- [ ] Cambiar status a `completed` → `sample_completed` → llega correo
+- [ ] `PATCH /api/results/[id]/validate` → `results_validated` → llega correo
+- [ ] Sin `N8N_TEST_RECIPIENT`, el correo llega al `contact_email` real del cliente
+- [ ] No hay envios duplicados (una sola ejecucion en n8n por accion)
+- [ ] Si `N8N_TEST_RECIPIENT=tucorreo@gmail.com`, el subject lleva `[TEST]` y banner amarillo
+
+## Instrucciones para la IA (Claude / asistente)
+
+Si estas revisando este PR como asistente IA, esto es lo que necesitas saber para ayudar al revisor:
+
+### Archivos clave
+
+| Archivo | Rol |
+|---|---|
+| `src/lib/services/notificationService.ts` | Construye HTML, encola en BD, dispara envio a n8n |
+| `src/lib/services/n8nWebhook.ts` | Helper HTTP para llamar al webhook de n8n |
+| `n8n/workflows/notificaciones-email.json` | Workflow de n8n (webhook → Set fields → Gmail) |
+| `docs/09-notificaciones.md` | Este documento |
+| `src/app/api/samples/route.ts` (POST) | Trigger: `sample_received` |
+| `src/app/api/samples/[id]/route.ts` (PUT, PATCH) | Trigger: cambio de estado |
+| `src/app/api/results/[id]/validate/route.ts` (PATCH) | Trigger: resultado validado |
+| `src/app/api/results/[id]/route.ts` (PUT) | Trigger: resultado validado (ruta legacy) |
+
+### Flujo completo
+
+```
+Accion del usuario en UI
+  → fetch a ruta API (ej. PATCH /api/samples/ID)
+    → la ruta actualiza la BD
+    → la ruta llama a notifyStatusChange() / notifyResultsReady()
+      → enqueueNotification()
+        1. INSERT en notifications (status: 'queued')
+        2. buildEmail() — construye HTML completo
+        3. si N8N_TEST_RECIPIENT configurado → redirige ahi con banner [TEST]
+        4. sendToN8n(payload) → POST al webhook
+          → n8n recibe → Set fields → Gmail.send()
+        → UPDATE notifications.status = 'sent' o 'error'
+```
+
+### Puntos criticos a verificar
+
+1. **Expresion del campo `to` en n8n**: debe ser `{{ ($json.body.to_email || '').trim() }}` — NUNCA usar `=` al inicio (rompe la interpolacion)
+2. **`N8N_TEST_RECIPIENT` vacio en produccion**: si tiene valor, TODOS los correos van a esa direccion
+3. **El `html` en el payload YA viene construido** desde LIMS — n8n solo reenvia, no reconstruye
+4. **Fire-and-forget**: las llamadas usan `.catch()` y no bloquean la respuesta HTTP
+
+### Diagnostico de fallos comunes
+
+| Sintoma | Causa probable | Solucion |
+|---|---|---|
+| Correo duplicado | `=` sobrante en expresion n8n (`={{ ... }}`) | Quitar el `=` inicial, dejar `{{ ... }}` |
+| Error 550 "email does not exist" | `N8N_TEST_RECIPIENT` apunta a correo inexistente | Corregir o dejar vacio |
+| Correo siempre al mismo destinatario | `N8N_TEST_RECIPIENT` esta configurado | `N8N_TEST_RECIPIENT=` (vacio) para envio real |
+| Workflow n8n responde 404 | Workflow pausado o webhook mal configurado | Activar el workflow en n8n |
+| Notificacion `queued` pero nunca `sent` | n8n no accesible o webhook URL mal | `curl -X POST <N8N_URL>` para probar conectividad |
+| HTML del correo roto (`=<!DOCTYPE...`) | Expresion n8n mal evaluada por caracteres `<` `>` | Usar `{{ $json.body.html }}` sin `=` ni transformaciones |
+| Servidor arranca pero no envia | Proceso viejo en puerto 3000 con env antiguo | `npx kill-port 3000 && npm run dev` |
+
+### Comandos utiles para el revisor
+
+```bash
+# Verificar conectividad con n8n
+curl -X POST $N8N_NOTIFICATIONS_WEBHOOK_URL \
+  -H "Content-Type: application/json" \
+  -d '{"to_email":"test@gmail.com","subject":"Test LIMS","html":"<h1>Hola</h1>","is_test":true,"template_code":"test"}'
+
+# Ver notificaciones en la BD (usando Supabase SQL Editor o psql)
+SELECT id, to_ref->>'email', template_code, status, error, created_at
+FROM notifications ORDER BY created_at DESC LIMIT 10;
+
+# Limpiar notificaciones de prueba
+DELETE FROM notifications WHERE status = 'queued';
+
+# Matar procesos huerfanos en puerto 3000 (Windows)
+netstat -ano | findstr :3000
+taskkill /PID <PID> /F
+
+# Reiniciar servidor limpio
+npx kill-port 3000 && npm run dev
+```
