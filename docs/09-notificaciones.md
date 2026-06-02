@@ -211,7 +211,22 @@ Wrapper para el template `results_validated`.
 
 ## Guia para el revisor del PR
 
-### Requisitos previos
+### Forma facil (recomendada) — solo necesitas Node.js
+
+**No necesitas Docker, ni n8n, ni credenciales SMTP, ni LIMS corriendo.**
+
+1. Abre una terminal en la raiz del proyecto
+2. Ejecuta:
+   ```bash
+   node n8n/test-notificaciones.js tu-correo@gmail.com
+   ```
+3. Revisa tu bandeja de entrada (y spam). Debes recibir **4 correos** con el layout de LIMS (header verde, tabla de datos, footer gris).
+
+El script envia los 4 templates directamente al webhook de n8n. Si los correos llegan, el sistema funciona.
+
+### Forma completa — probar integracion real con LIMS
+
+Usa este metodo si necesitas verificar el flujo completo (accion en LIMS → notificacion → correo).
 
 1. **n8n funcionando**: local via Docker (`docker-compose up -d`) o una instancia cloud (n8n.cloud)
 2. **Credenciales SMTP configuradas en n8n**: el nodo "Enviar por Gmail" (o SMTP) debe tener credenciales validas
