@@ -211,18 +211,30 @@ Wrapper para el template `results_validated`.
 
 ## Guia para el revisor del PR
 
-### Forma facil (recomendada) — solo necesitas Node.js
+### Forma facil (recomendada) — abre LIMS, crea una muestra, recibe el correo
 
-**No necesitas Docker, ni n8n, ni credenciales SMTP, ni LIMS corriendo.**
+**No necesitas Docker, ni configurar SMTP, ni tocar n8n.**
 
-1. Abre una terminal en la raiz del proyecto
-2. Ejecuta:
+1. Pidele al autor del PR el archivo `.env.local` con las variables de entorno
+2. Colocalo en la raiz del proyecto
+3. Ejecuta:
    ```bash
-   node n8n/test-notificaciones.js tu-correo@gmail.com
+   npm install
+   npm run dev
    ```
-3. Revisa tu bandeja de entrada (y spam). Debes recibir **4 correos** con el layout de LIMS (header verde, tabla de datos, footer gris).
+4. Abre `http://localhost:3000` e inicia sesion con la cuenta de pruebas:
+   - **Usuario**: `jmelian@lims.com`
+   - **Contrasena**: `test123`
+5. Anda a **Clientes** → busca **Jmelian** → editalo → cambia el `contact_email` a **tu correo personal**
+6. Anda a **Muestras** → busca **DEMO-026** (o cualquier DEMO) → editala → cambia el **Estado** a cualquier otro valor → guarda
+7. Revisa tu bandeja de entrada (y spam). Debes recibir un correo con el layout de LIMS.
 
-El script envia los 4 templates directamente al webhook de n8n. Si los correos llegan, el sistema funciona.
+**Para probar los 4 templates**, repite el paso 6 con estos cambios:
+- Cambiar estado cualquiera → `sample_status_change`
+- Cambiar estado a **Completada** → `sample_completed`
+- Ir a una muestra con resultados y validarlo → `results_validated`
+
+Tambien podes probar creando una muestra nueva (`POST /api/samples`) → `sample_received`.
 
 ### Forma completa — probar integracion real con LIMS
 
