@@ -38,7 +38,7 @@ export function KpiPositivityChart({ data, groupBy }: KpiPositivityChartProps) {
 
   // Si groupBy es clientType, usar el desglose específico
   if (groupBy === 'clientType') {
-    if (!data || data.overall.total === 0) {
+    if (!data || !data.overall || data.overall.total === 0) {
       return (
         <div className="flex h-64 items-center justify-center text-sm text-gray-500">
           No hay resultados para calcular la tasa de positividad.
@@ -61,16 +61,16 @@ export function KpiPositivityChart({ data, groupBy }: KpiPositivityChartProps) {
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg bg-green-50 p-3 text-center">
             <p className="text-xs font-medium text-green-700">Positivos</p>
-            <p className="text-xl font-bold text-green-900">{data.overall.positive}</p>
-            <p className="text-xs text-green-600">{data.overall.positivityRate}%</p>
+            <p className="text-xl font-bold text-green-900">{data?.overall?.positive ?? 0}</p>
+            <p className="text-xs text-green-600">{data?.overall?.positivityRate ?? 0}%</p>
           </div>
           <div className="rounded-lg bg-red-50 p-3 text-center">
             <p className="text-xs font-medium text-red-700">Negativos</p>
-            <p className="text-xl font-bold text-red-900">{data.overall.negative}</p>
+            <p className="text-xl font-bold text-red-900">{data?.overall?.negative ?? 0}</p>
           </div>
           <div className="rounded-lg bg-gray-50 p-3 text-center">
             <p className="text-xs font-medium text-gray-600">Inconclusos</p>
-            <p className="text-xl font-bold text-gray-700">{data.overall.inconclusive}</p>
+            <p className="text-xl font-bold text-gray-700">{data?.overall?.inconclusive ?? 0}</p>
           </div>
         </div>
 
@@ -110,7 +110,7 @@ export function KpiPositivityChart({ data, groupBy }: KpiPositivityChartProps) {
           </table>
         </div>
 
-        <p className="text-xs text-gray-500">Total: {data.overall.total} resultados</p>
+        <p className="text-xs text-gray-500">Total: {data?.overall?.total ?? 0} resultados</p>
       </div>
     )
   }
@@ -118,7 +118,7 @@ export function KpiPositivityChart({ data, groupBy }: KpiPositivityChartProps) {
   // Código original para pathogen y species
   const rows = groupBy === 'pathogen' ? data?.byPathogen : data?.bySpecies
 
-  if (!data || data.overall.total === 0) {
+  if (!data || !data.overall || data.overall.total === 0) {
     return (
       <div className="flex h-64 items-center justify-center text-sm text-gray-500">
         No hay resultados para calcular la tasa de positividad.
@@ -141,16 +141,16 @@ export function KpiPositivityChart({ data, groupBy }: KpiPositivityChartProps) {
       <div className="grid grid-cols-3 gap-3">
         <div className="rounded-lg bg-green-50 p-3 text-center">
           <p className="text-xs font-medium text-green-700">Positivos</p>
-          <p className="text-xl font-bold text-green-900">{data.overall.positive}</p>
-          <p className="text-xs text-green-600">{data.overall.positivityRate}%</p>
+          <p className="text-xl font-bold text-green-900">{data?.overall?.positive ?? 0}</p>
+          <p className="text-xs text-green-600">{data?.overall?.positivityRate ?? 0}%</p>
         </div>
         <div className="rounded-lg bg-red-50 p-3 text-center">
           <p className="text-xs font-medium text-red-700">Negativos</p>
-          <p className="text-xl font-bold text-red-900">{data.overall.negative}</p>
+          <p className="text-xl font-bold text-red-900">{data?.overall?.negative ?? 0}</p>
         </div>
         <div className="rounded-lg bg-gray-50 p-3 text-center">
           <p className="text-xs font-medium text-gray-600">Inconclusos</p>
-          <p className="text-xl font-bold text-gray-700">{data.overall.inconclusive}</p>
+          <p className="text-xl font-bold text-gray-700">{data?.overall?.inconclusive ?? 0}</p>
         </div>
       </div>
 
@@ -172,7 +172,7 @@ export function KpiPositivityChart({ data, groupBy }: KpiPositivityChartProps) {
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <p className="text-xs text-gray-500">Total: {data.overall.total} resultados</p>
+      <p className="text-xs text-gray-500">Total: {data?.overall?.total ?? 0} resultados</p>
     </div>
   )
 }
