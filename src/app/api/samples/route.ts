@@ -16,7 +16,6 @@ export const GET = withAuth(async (request, { user, supabase }) => {
       .select(`
         *,
         clients (id, name),
-        projects (id, name),
         sample_tests (
           id,
           test_catalog (id, name, area),
@@ -171,8 +170,7 @@ export const POST = withAuth(async (request, { user, supabase }) => {
       .insert(sampleData)
       .select(`
         *,
-        clients (id, name),
-        projects (id, name)
+        clients (id, name)
       `)
       .single()
 
