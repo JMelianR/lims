@@ -5,8 +5,10 @@
 // Safe date formatting
 export const formatDate = (date: string | null | undefined, locale: string = 'es-ES'): string => {
   if (!date) return 'N/A'
+  const dateObj = new Date(date)
+  if (isNaN(dateObj.getTime())) return 'Fecha inválida'
   try {
-    return new Date(date).toLocaleDateString(locale)
+    return dateObj.toLocaleDateString(locale)
   } catch {
     return 'Fecha inválida'
   }
@@ -14,8 +16,10 @@ export const formatDate = (date: string | null | undefined, locale: string = 'es
 
 export const formatDateTime = (date: string | null | undefined, locale: string = 'es-ES'): string => {
   if (!date) return 'N/A'
+  const dateObj = new Date(date)
+  if (isNaN(dateObj.getTime())) return 'Fecha inválida'
   try {
-    return new Date(date).toLocaleString(locale)
+    return dateObj.toLocaleString(locale)
   } catch {
     return 'Fecha inválida'
   }
@@ -24,11 +28,11 @@ export const formatDateTime = (date: string | null | undefined, locale: string =
 // Calculate days ago
 export const getDaysAgo = (date: string | null | undefined): number => {
   if (!date) return 0
-  try {
-    return Math.floor((Date.now() - new Date(date).getTime()) / (1000 * 60 * 60 * 24))
-  } catch {
-    return 0
-  }
+  const dateObj = new Date(date)
+  if (isNaN(dateObj.getTime())) return 0
+  const diff = Date.now() - dateObj.getTime()
+  if (isNaN(diff)) return 0
+  return Math.floor(diff / (1000 * 60 * 60 * 24))
 }
 
 // Safe string formatting

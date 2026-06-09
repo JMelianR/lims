@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import { withAuth } from '@/lib/auth/api-auth'
+import { CLIENT_TYPES, CLIENT_TYPE_LABELS } from '@/lib/constants/client-types'
+import type { ClientTypeCounts } from '@/types/analytics'
 
 const MONTHS_BACK = 3
 
@@ -85,10 +87,6 @@ function sampleIngressTimeMs(sample: {
   return null
 }
 
-/**
- * Promedio en horas: validation_date del resultado menos ingreso de muestra.
- * (En esquema: validation_date ≈ momento de validación.)
- */
 type SampleIngressSlice = {
   received_at: string | null
   received_date: string | null
@@ -145,7 +143,23 @@ async function fetchAllPages<T>(
   return accumulated
 }
 
-export const GET = withAuth(async (_request, { user, supabase }) => {
+// ── Resolver tipos de cliente ──
+
+function resolveClientTypes(raw: string | null): string[] {
+  if (!raw || raw === 'all' || raw.trim() === '') return CLIENT_TYPES as unknown as string[]
+  return raw
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t) => CLIENT_TYPES.includes(t as typeof CLIENT_TYPES[number]))
+}
+
+function extractClientType(clientsRaw: any): string {
+  if (!clientsRaw) return 'sin_tipo'
+  const client = Array.isArray(clientsRaw) ? clientsRaw[0] : clientsRaw
+  return client?.client_type || 'sin_tipo'
+}
+
+export const GET = withAuth(async (request, { user, supabase }) => {
   try {
     const { data: userData } = await supabase
       .from('users')
@@ -155,6 +169,10 @@ export const GET = withAuth(async (_request, { user, supabase }) => {
 
     const companyId = userData?.company_id ?? undefined
 
+    const { searchParams } = new URL(request.url)
+    const clientTypes = resolveClientTypes(searchParams.get('client_type'))
+    const isFiltered = clientTypes.length < CLIENT_TYPES.length
+
     const monthSequence = rollingMonthKeysUtc()
     const oldestKey = monthSequence[0]
     const [oldestYearStr, oldestMonthStr] = oldestKey.split('-')
@@ -162,11 +180,19 @@ export const GET = withAuth(async (_request, { user, supabase }) => {
       Date.UTC(Number(oldestYearStr), Number(oldestMonthStr) - 1, 1, 0, 0, 0, 0)
     ).toISOString()
 
-    const sampleRows = await fetchAllPages<{ created_at: string | null; received_date: string | null }>(
+    // ── samplesByMonth ──
+
+    type SampleMonthRow = {
+      created_at: string | null
+      received_date: string | null
+      clients: { client_type: string | null } | { client_type: string | null }[] | null
+    }
+
+    const sampleRows = await fetchAllPages<SampleMonthRow>(
       async (fromInclusive, toInclusive) => {
         let query = supabase
           .from('samples')
-          .select('created_at, received_date')
+          .select('created_at, received_date, client_id, clients(client_type)')
           .gte('created_at', rangeStartIso)
           .range(fromInclusive, toInclusive)
 
@@ -179,47 +205,76 @@ export const GET = withAuth(async (_request, { user, supabase }) => {
     )
 
     const countsByMonth = new Map<string, number>()
+    const countsByMonthByType = new Map<string, ClientTypeCounts>()
     for (const key of monthSequence) {
       countsByMonth.set(key, 0)
+      countsByMonthByType.set(key, {})
     }
 
     for (const row of sampleRows) {
+      const ct = extractClientType(row.clients)
+      if (isFiltered && !clientTypes.includes(ct)) continue
+
       let key = monthKeyFromTimestamp(row.created_at)
       if (!key || !countsByMonth.has(key)) {
         key = monthKeyFromReceivedDate(row.received_date)
       }
       if (key && countsByMonth.has(key)) {
         countsByMonth.set(key, (countsByMonth.get(key) ?? 0) + 1)
+        const byType = countsByMonthByType.get(key)!
+        byType[ct as keyof ClientTypeCounts] = (byType[ct as keyof ClientTypeCounts] ?? 0) + 1
       }
     }
 
     const samplesByMonth = monthSequence.map((monthKey) => ({
       monthKey,
       label: formatMonthLabel(monthKey),
-      count: countsByMonth.get(monthKey) ?? 0
+      count: countsByMonth.get(monthKey) ?? 0,
+      byClientType: countsByMonthByType.get(monthKey) ?? {},
     }))
 
-    const resultRows = await fetchAllPages<{ test_area: string | null }>(
+    // ── resultsByType ──
+
+    type ResultTypeRow = {
+      test_area: string | null
+      samples: {
+        clients: { client_type: string | null } | { client_type: string | null }[] | null
+      } | { clients: { client_type: string | null } | { client_type: string | null }[] | null }[] | null
+    }
+
+    const resultRows = await fetchAllPages<ResultTypeRow>(
       async (fromInclusive, toInclusive) => {
         if (companyId) {
           return supabase
             .from('results')
-            .select('test_area, samples!inner(company_id)')
+            .select('test_area, samples!inner(company_id, client_id, clients(client_type))')
             .eq('samples.company_id', companyId)
             .range(fromInclusive, toInclusive)
         }
-        return supabase.from('results').select('test_area').range(fromInclusive, toInclusive)
+        return supabase
+          .from('results')
+          .select('test_area, samples(client_id, clients(client_type))')
+          .range(fromInclusive, toInclusive)
       }
     )
 
-    const analysisTypeCounts = new Map<string, { label: string; count: number }>()
+    const analysisTypeCounts = new Map<string, { label: string; count: number; byClientType: ClientTypeCounts }>()
     for (const row of resultRows) {
+      const sampleRaw = row.samples
+      const sample = Array.isArray(sampleRaw) ? sampleRaw[0] ?? null : sampleRaw
+      const ct = extractClientType((sample as any)?.clients)
+      if (isFiltered && !clientTypes.includes(ct)) continue
+
       const { typeKey, label } = formatTestAreaLabel(row.test_area)
       const existing = analysisTypeCounts.get(typeKey)
       if (existing) {
         existing.count += 1
+        existing.byClientType[ct as keyof ClientTypeCounts] =
+          (existing.byClientType[ct as keyof ClientTypeCounts] ?? 0) + 1
       } else {
-        analysisTypeCounts.set(typeKey, { label, count: 1 })
+        const byClientType: ClientTypeCounts = {}
+        byClientType[ct as keyof ClientTypeCounts] = 1
+        analysisTypeCounts.set(typeKey, { label, count: 1, byClientType })
       }
     }
 
@@ -227,20 +282,18 @@ export const GET = withAuth(async (_request, { user, supabase }) => {
       .map(([typeKey, meta]) => ({
         typeKey,
         label: meta.label,
-        count: meta.count
+        count: meta.count,
+        byClientType: meta.byClientType,
       }))
       .sort((a, b) => b.count - a.count)
+
+    // ── averageLeadTimeHours ──
 
     const validatedLeadRows = (await fetchAllPages<ValidatedLeadRow>(async (fromInclusive, toInclusive) => {
       if (companyId) {
         return supabase
           .from('results')
-          .select(
-            `
-            validation_date,
-            samples!inner ( received_at, received_date, company_id )
-          `
-          )
+          .select('validation_date, samples!inner(received_at, received_date, company_id)')
           .eq('status', 'validated')
           .not('validation_date', 'is', null)
           .eq('samples.company_id', companyId)
@@ -248,12 +301,7 @@ export const GET = withAuth(async (_request, { user, supabase }) => {
       }
       return supabase
         .from('results')
-        .select(
-          `
-          validation_date,
-          samples ( received_at, received_date )
-        `
-        )
+        .select('validation_date, samples(received_at, received_date)')
         .eq('status', 'validated')
         .not('validation_date', 'is', null)
         .range(fromInclusive, toInclusive)
@@ -265,7 +313,7 @@ export const GET = withAuth(async (_request, { user, supabase }) => {
       samplesByMonth,
       resultsByType,
       averageLeadTimeHours: averageHours,
-      averageLeadTimeResultCount: resultCount
+      averageLeadTimeResultCount: resultCount,
     })
   } catch (error) {
     console.error('Error fetching chart statistics:', error)

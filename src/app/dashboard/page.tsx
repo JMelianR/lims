@@ -16,6 +16,7 @@ import {
   TestTube
 } from 'lucide-react'
 import Link from 'next/link'
+import { MonitorLaboratorio } from '@/components/dashboard/MonitorLaboratorio'
 
 
 interface DashboardStats {
@@ -276,6 +277,15 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Monitor de Laboratorio */}
+        <div className="mb-8">
+          <div className="mb-4">
+            <h2 className="text-xl font-bold text-gray-900">Monitor de Laboratorio</h2>
+            <p className="text-sm text-gray-500">Alertas, cuellos de botella y actividad en tiempo real</p>
+          </div>
+          <MonitorLaboratorio />
         </div>
 
         {/* Quick Actions */}
